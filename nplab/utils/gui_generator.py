@@ -1,18 +1,17 @@
-import os
-import inspect
-import numpy as np
-
-import pyqtgraph
-import pyqtgraph.dockarea
-
 from nplab.utils.gui import QtWidgets, uic, QtCore
 from nplab.ui.ui_tools import UiTools
 import nplab.datafile as df
 from nplab.utils.log import create_logger, ColoredFormatter
 
 import logging
-
-LOGGER = create_logger('GeneratedGUI')
+import os
+import inspect
+import numpy as np
+import pyqtgraph
+import pyqtgraph.dockarea
+import ctypes as ct
+import datetime
+import time
 
 
 class GuiGenerator(QtWidgets.QMainWindow, UiTools):
@@ -38,9 +37,9 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
                                         the same directorys
                                 """
         super(GuiGenerator, self).__init__(parent)
-        self._logger = LOGGER
+        self._logger = create_logger('GeneratedGUI')
         self.instr_dict = instrument_dict
-        if working_directory == None:
+        if working_directory is None:
             self.working_directory = os.path.join(os.getcwd())
         else:
             self.working_directory = working_directory
@@ -140,28 +139,20 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
             self.actions['Views'][instr] = action
 
     def _toggleView(self, instr):
-        """A function for togalling a single gui """
+        """A function for toggling a single gui. It does not work terribly well with docked widgets, likely due to some
+        pyqtgraph issue"""
         if self.actions['Views'][instr].isChecked():
             self.allDocks[instr].show()
-            self.dockwidgetArea.addDock(self.allDocks[instr], 'left')
+            # self.dockwidgetArea.addDock(self.allDocks[instr], 'left')
         else:
-            self.allDocks[instr].close()
-
-    def _addActionInstrMenu(self, instr):
-        if instr not in self.actions['Instruments']:
-            action = QtWidgets.QAction(instr, self)
-            self.menuInstr.addAction(action)
-            action.setCheckable(True)
-            action.setChecked(settings.addresses[instr]['use?'])
-            action.triggered.connect(lambda: self._toggleInstr(instr))
-            self.actions['Instruments'][instr] = action
+            self.allDocks[instr].hide()
 
     def _setupSignals(self):
         """Connect signals for the different general gui buttons/menu's """
         self.actionExit.triggered.connect(self.close)
         self.actionNightMode.triggered.connect(self.toggleNightMode)
         self.actionTerminal.triggered.connect(self.menuTerminal)
-        self.actionShowBrowser.triggered.connect(self.toggle_browser)
+        # self.actionShowBrowser.triggered.connect(self.toggle_browser)
         self.actionNewExperiment.triggered.connect(self.menuNewExperiment)
         self.actionSaveExperiment.triggered.connect(self.menuSaveExperiment)
         self.actionSaveSettings.triggered.connect(self.menuSaveSettings)
@@ -172,10 +163,10 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
         actions[1].triggered.connect(lambda: self.VerboseChanged(actions[1]))
         actions[2].triggered.connect(lambda: self.VerboseChanged(actions[2]))
 
-    def toggle_browser(self):
-        """enable or disable the file browser """
-        self.actions['Views']['HDF5'].toggle()
-        self._toggleView('HDF5')
+    # def toggle_browser(self):
+    #     """enable or disable the file browser """
+    #     self.actions['Views']['HDF5'].toggle()
+    #     self._toggleView('HDF5')
 
     def toggleNightMode(self):
         """A function to switch all the colors to night mode - handy when working in an optics lab """
@@ -234,16 +225,25 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
                 'The dock_settings file does not exist! or it is for the wrong docks!')
 
     def menuNewExperiment(self):
-        """A start new experiement button casuing the gui to close ask for a new file
+        """A start new experiment button causing the gui to close and ask for a new file
             and reopen"""
         dock_state = self.dockWidgetArea.saveState()
-        self.toggle_browser()
+        # self.toggle_browser()
+        self.allDocks['HDF5'].close()
+        self.instr_dict['HDF5'].close()
+        del self.instr_dict['HDF5']
+        del self.allDocks['HDF5']
+
         self.data_file = df.current()
         self.instr_dict['HDF5'] = self.data_file
         self._open_one_gui('HDF5')
+        if os.environ["QT_API"] == "pyqt5":
+            self.terminalWindow.push_vars(dict(HDF5=self.data_file))
+        else:
+            self.terminalWindow.push(dict(HDF5=self.data_file))
+        # self._toggleView('HDF5')
         self.dockWidgetArea.restoreState(dock_state)
 
-    #
     def menuSaveExperiment(self):
         """push to data to hard drive """
         self.data_file.flush()
@@ -277,9 +277,9 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
                 handle = logging.StreamHandler(self.terminalWindow.kernel.stdout)
             formatter = ColoredFormatter('[%(name)s] - %(levelname)s: %(message)s - %(asctime)s ', '%H:%M')
             handle.setFormatter(formatter)
-            self._logger.addHandler(handle)
+            # self._logger.addHandler(handle)
             instr_logger = logging.getLogger('Instrument')
-            instr_logger.addHandler(handle)
+            # instr_logger.addHandler(handle)
 
             self.allDocks['Terminal'] = pyqtgraph.dockarea.Dock('Terminal')
             if os.environ["QT_API"] == "pyqt5":
@@ -327,6 +327,7 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
 
     def menuScriptClicked(self, scriptname):
         """Runs the selected script """
+        print "Clicked script %s" % scriptname
         if self.terminalWindow is None:
             self.menuTerminal()
 
@@ -377,3 +378,346 @@ class GuiGenerator(QtWidgets.QMainWindow, UiTools):
                 event.ignore()
         except Exception as e:
             print e
+
+
+def totuple(a):
+    """
+    Tries to turn 'a' (whatever it is) into a tuple, and if 'a' is an iterable, it tries to turn it into a tuple at
+    all depth levels
+    :param a:
+    :return:
+    """
+
+    try:
+        return tuple(totuple(i) for i in a)
+    except TypeError:
+        return a
+
+
+def depth(lst):
+    """
+    Gets the depth of a list:
+        depth([0,1,2,3,4]) is 1
+        depth([[0,1],[2,3]]) is 2
+
+    Args:
+        lst: list or list of lists
+
+    Returns:
+        Depth of the list of lists provided
+    """
+    return isinstance(lst, list) and max(map(depth, lst)) + 1
+
+
+class GeneralScan:  # (QtCore.QThread):
+
+    def __init__(self, gui_generator, **kwargs):
+        # self.prep_functions = prep_funcs(instrument_dictionary, gui)
+        # self.measure_functions = measure_funcs(instrument_dictionary, gui)
+        self.instr_dict = gui_generator.instr_dict
+        self.pyqt_app = self.instr_dict['PyqtApp']
+        self.gui = gui
+
+        if 'series_name' in kwargs:
+            self.series_name = kwargs['series_name']
+        else:
+            self.series_name = 'DefaultSeriesName'
+
+        if 'email' in kwargs:
+            assert type(kwargs['email']) == str
+            self.email = True
+            self.email_address = kwargs['email']
+        else:
+            self.email = False
+
+        if 'file_name' in kwargs:
+            self.instr_dict['HDF5'].close()
+            self.instr_dict['HDF5'] = df.DataFile(kwargs['file_name'])
+            self.instr_dict['HDF5'].make_current()
+        if self.instr_dict["HDF5"] is None:
+            self.gui.menuNewExperiment()
+
+        self._logger = create_logger('Experiment.GeneralScan')
+        if 'logging_level' in kwargs:
+            self._logger.setLevel(kwargs['logging_level'])
+        else:
+            self._logger.setLevel('INFO')
+
+        self.gui.abortScan = False
+
+        self.iterable_variables = []
+        self.measurements = []
+
+    def make_ranges(self):
+        """
+        Using the given variable dictionaries, creates an list of tuples to be used by itertools in self._iter_func.
+        Each tuple contains the values over which to iterate a particular variable. The order of the tuples corresponds
+        to the order in which they are given in self.iterable_variables
+
+        :return:
+        """
+
+        for measure in self.measurements:
+            if 'depth' not in measure:
+                measure['depth'] = len(self.iterable_variables)
+            if 'save' not in measure:
+                measure['save'] = True
+
+        self.ranges = []
+        for iterable_var in self.iterable_variables:
+            # There are two options for giving values to a variable:
+            #   - A 4-item list: ['linear'/'random', lower_value, upper_value, number_of_values]
+            #   - An iterable containing the values you want
+            first_value = iterable_var['values'][0]
+            if type(first_value) == str:
+                if first_value == 'linear':
+                    appendable = np.linspace(*iterable_var['values'][1:])
+                elif first_value == 'random':
+                    appendable = np.random.uniform(*iterable_var['values'][1:])
+                else:
+                    raise ValueError("Unrecognised variable type")
+            else:
+                appendable = iterable_var['values']
+
+            self.ranges.append(totuple(appendable))
+
+    def is_viable(self):
+        return True
+
+    def scan_abort(self):
+        """
+        A scan can be paused or aborted at each iteration. This relies on the GUI having the attributes _abort_scan and
+        _pause_scan and the function play_scan
+
+        :return:
+        """
+        self._logger.warn('Aborting')
+        if self.gui._abort_scan:
+            toggle = ct.windll.user32.MessageBoxA(0, 'Continue (Y) or abort (N)?', '', 4)
+            if toggle == 7:
+                return True
+            else:
+                self.gui._abort_scan = False
+                self.gui.play_scan()
+                return False
+        elif self.gui._pause_scan:
+            while self.gui._pause_scan:
+                time.sleep(0.05)
+                self.pyqt_app.processEvents()
+            return False
+        else:
+            return False
+
+    def run(self):
+        """Light wrapper of the _iter_func
+        Ensures the scan gets initialised with the right ranges, and scan booleans. Also times how long the iteration
+        takes, and also adds the option of emailing at the end of the scan
+
+        :return:
+        """
+
+        # Ensures that the scan pause and abort options are False
+        for button, value in zip(['Abort', 'Play'], [False, True]):
+            getattr(self.gui, 'actionScan' + button).setChecked(not value)
+            getattr(self.gui, 'actionScan' + button).trigger()
+
+        self.make_ranges()
+
+        t0 = time.clock()
+        self._iter_func(0)
+        t2 = time.clock()
+
+        self._logger.info('%s finished at %s after %g min' % (self.series_name,
+                                                              datetime.datetime.now().strftime('%H %M %S'),
+                                                              (t2 - t0) / 60.))
+        if self.email:
+            email.send_email(self.email_address, "GeneralScan finished at %s, after %g minutes" % (
+                datetime.datetime.now().strftime('%H %M %S'), '%H %M %S'), (t2 - t0) / 60.)
+
+    def _iter_func(self, depthval):
+        """
+        Iterator function that creates nested 'for' loops for each given range, and then prepares and measures the
+        experiment according to the user-given dictionary at each hierarchical level
+
+        :param depthval: integer. Hierachical level inside the nested loops. 0 is the top level.
+        :return:
+        """
+        if depthval == 0:
+            self.foldername = [''] * (len(self.iterable_variables) + 2)
+            self.foldername[0] = self.series_name
+
+        if depthval < len(self.iterable_variables):
+            iterable_var = self.iterable_variables[depthval]
+            for value in self.ranges[depthval]:
+                if self.scan_abort():
+                    break
+
+                if depthval == 0:
+                    self._logger.info('Setting %s to %g' % (iterable_var, value))
+                else:
+                    self._logger.debug('Setting %s to %g' % (iterable_var, value))
+
+                if 'name' not in iterable_var:
+                    variable_name = iterable_var['instrument']
+                    if 'function' in iterable_var:
+                        variable_name += iterable_var['function']
+                    if 'property' in iterable_var:
+                        variable_name += iterable_var['property']
+                else:
+                    variable_name = iterable_var['name']
+
+                self.foldername[depthval + 1] = '%s=%g' % (variable_name, value)
+                folderstring = '/'.join(self.foldername[0:(2 + depthval)])
+                if folderstring in self.instr_dict["HDF5"]:
+                    self._logger.debug('%s already existed, creating another one' % folderstring)
+                    index = 1
+                    while folderstring + '-%i' % index in self.instr_dict["HDF5"]:
+                        index += 1
+                    self.foldername[depthval + 1] = '%s=%g-%i' % (variable_name, value, index)
+
+                # Prepares the experiment according to the user-given dictionaries
+                self._logger.debug("Calling _prepare: %s to %s" % (variable_name, value))
+                self._prepare(value, iterable_var)
+
+                # In most experiments, you would only want to measure at the lowest level of the nested loops. However,
+                # this is here just in case you want to do a measurement beforehand (e.g. if you change the power, you
+                # might want to measure it once, immediately after changing it)
+                self._logger.debug("Calling _measure: ", depthval)
+                self._measure(depthval)
+
+                # Next level of the iterator
+                self._iter_func(depthval + 1)
+        else:
+            self._logger.debug("Calling _measure: ", depthval)
+            self._measure(depthval)
+
+    def get_attributes(self, list_of_dictionaries):
+        attributes = {}
+        for dictionary in list_of_dictionaries:
+            instr = self.instr_dict[dictionary['instrument']]
+            attribute_name = dictionary['instrument'] + '.'
+            if 'function' in dictionary:
+                attribute_value = getattr(instr, dictionary['function'])
+                attribute_name += dictionary['function']
+            elif 'property' in dictionary:
+                attribute_value = getattr(instr, dictionary['property'])
+                attribute_name += dictionary['property']
+            else:
+                raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
+                                 variable_dictionary)
+            attributes[attribute_name] = attribute_value
+
+        self._logger.debug('Attributes: ', attributes)
+        return attributes
+
+    def _prepare(self, value, variable_dictionary):
+        """
+        Example variable_dictionary:
+               dict(instrument='sample',
+                    function="move", kwargs=dict(axes='x'),
+                    values=np.linspace(1900000, 2000000, 11),
+                    metadata=[dict(instrument='temp_gauge', property='temperature')])
+
+        :param value:
+        :param variable_dictionary:
+        :return:
+        """
+        instr = self.instr_dict[variable_dictionary['instrument']]
+        if 'function' in variable_dictionary:
+            self._logger.debug('Preparing: %s %s %s' % (instr, variable_dictionary['function'], value))
+            if 'kwargs' in variable_dictionary:
+                kwargs = variable_dictionary['kwargs']
+            else:
+                kwargs = {}
+            # print 'HEREHEREHERE: ', instr, variable_dictionary['function'], value, kwargs
+            # time.sleep(1)
+            getattr(instr, variable_dictionary['function'])(value, **kwargs)
+            # time.sleep(1)
+        elif 'property' in variable_dictionary:
+            self._logger.debug('Preparing: %s %s %s' % (instr, variable_dictionary['property'], value))
+            setattr(instr, variable_dictionary['property'], value)
+        else:
+            raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
+                             variable_dictionary)
+        self.pyqt_app.processEvents()
+
+        attributes = {}
+        if 'metadata' in variable_dictionary:
+            attributes = self.get_attributes(variable_dictionary['metadata'])
+        self.pyqt_app.processEvents()
+
+        self._logger.debug('Creating group: %s %s' % (self.foldername, attributes))
+        # print self.foldername
+        # print '/'.join(self.foldername)
+        # print attributes
+        self.instr_dict['HDF5'].create_group('/'.join(self.foldername), attributes)
+        self.pyqt_app.processEvents()
+
+    def _measure(self, depthval):
+        """
+        Iterate over all the measures, and perform the measurement for measures at correct depth, given by depthval
+
+        :param depthval: int. hierarchical depth of the measurements to be carried out
+        :return:
+        """
+        for measure_dictionary in self.measurements:
+            if depthval == measure_dictionary['depth']:
+                for prep in measure_dictionary['preparation']:
+                    instr = self.instr_dict[prep['instrument']]
+                    if 'function' in prep:
+                        args = []
+                        if 'args' in prep:
+                            args = prep['args']
+                        self._logger.debug('Measure preparing: %s %s %s' % (instr, prep['function'], args))
+                        getattr(instr, prep['function'])(*args)
+                    elif 'properties' in prep:
+                        for prop, value in prep['properties'].items():
+                            self._logger.debug('Preparing: %s %s %s' % (instr, prop, value))
+                            setattr(instr, prop, value)
+                    else:
+                        raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
+                                         variable_dictionary)
+                    self.pyqt_app.processEvents()
+
+                for measurement in measure_dictionary['measurements']:
+                    if 'name' in measurement:
+                        measure_name = measurement['name']
+                    else:
+                        measure_name = measurement['instrument']
+                    current_folder = list(self.foldername[0:(2 + depthval)])
+                    current_folder[-1] = measure_name
+                    dataset_name = '/'.join(current_folder)
+
+                    instr = self.instr_dict[measurement['instrument']]
+                    if measurement['instrument'] == 'streak':
+                        try:
+                            directory = self.instr_dict['HDF5'].dirname + '/' + dataset_name
+                            if not os.path.exists(directory):
+                                os.makedirs(directory)
+                            directory += '/00001.tif'
+                            self._logger.debug('Streak sequence: %s' % directory)
+                            instr.start_sequence(directory, True)
+                            self.pyqt_app.processEvents()
+                        except Exception as e:
+                            self._logger.warn('Streak failed at %s because: %s' % (line, e))
+                    else:
+                        attributes = {}
+                        if 'metadata' in measurement:
+                            attributes = self.get_attributes(measurement['metadata'])
+                        self.pyqt_app.processEvents()
+
+                        if 'function' in measurement:
+                            self._logger.debug('Measuring: %s %s' % (instr, measurement['function']))
+                            data = getattr(instr, measurement['function'])()
+                        elif 'property' in measurement:
+                            self._logger.debug('Measuring: %s %s' % (instr, measurement['property']))
+                            data = getattr(instr, measurement['property'])
+                        else:
+                            raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
+                                             variable_dictionary)
+                        self.pyqt_app.processEvents()
+
+                        self._logger.info('Saving: %s %s' % (dataset_name, attributes))
+                        self.instr_dict['HDF5'].create_dataset(dataset_name, data=data, attrs=attributes)
+                        self.pyqt_app.processEvents()
+                        self.instr_dict['HDF5'].flush()
