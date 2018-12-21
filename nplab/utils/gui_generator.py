@@ -416,7 +416,7 @@ class GeneralScan:  # (QtCore.QThread):
         # self.measure_functions = measure_funcs(instrument_dictionary, gui)
         self.instr_dict = gui_generator.instr_dict
         self.pyqt_app = self.instr_dict['PyqtApp']
-        self.gui = gui
+        self.gui = gui_generator
 
         if 'series_name' in kwargs:
             self.series_name = kwargs['series_name']
