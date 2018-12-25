@@ -2,6 +2,7 @@ from nplab.utils.gui import QtWidgets, uic, QtCore
 from nplab.ui.ui_tools import UiTools
 import nplab.datafile as df
 from nplab.utils.log import create_logger, ColoredFormatter
+import nplab.utils.send_mail as email
 
 import logging
 import os
@@ -410,6 +411,42 @@ def depth(lst):
 
 
 class GeneralScan:  # (QtCore.QThread):
+    """
+    Use the GeneralScan class to define an iteration over any number of parameters and measurements.
+
+    It requires the provision of a GuiGenerator instance, that contains all the pointers to the instantiated instruments and
+    GUIs which will be called during the scan
+
+    After initiating an instance, define a preparation dictionary and a measurement dictionary that will define what will be
+    done during the scan. The following example creates and runs a scan that moves the sample x_axis, measures the
+    temperature after each sample movement, then takes a snapshot with the camera and stores the image and the exposure time
+
+        gs = GeneralScan(exper, gui, series_name='PositionSeries')
+        gs.iterable_variables = [dict(instrument='sample',
+                                      function="move", kwargs=dict(axes='x'),
+                                      values=np.linspace(0, 1, 11),
+                                      metadata=[dict(instrument='temp_gauge', property='temperature')])]
+        gs.measurements = [dict(preparation=[dict(instrument='camera', function="raw_snapshot")],
+                                measurements=[dict(instrument='camera',
+                                                   property="current_image",
+                                                   metadata=[dict(instrument='camera', property='exposure')])])]
+        gs.run()
+
+    This example runs as follows:
+        - Moves the sample to the first position along the x-axis (x=0)
+        - Measures the temperature and creates a folder in the GuiGenerator HDF5 file called PositionSeries/samplemove=0
+        with an attribute temp_gaugetemperature=295 (assuming sample was at room temperature)
+        - Takes a raw_snapshot with the camera
+        - Makes an HDF5 dataset inside the just-created group, with the data being camera.current_image and attributes being
+        camera.exposure
+        - Moves to the next sample position (x=0.1) and repeats
+
+
+    Possible expansions to consider:
+        - Allow user-defined named, complex functions (e.g. below threshold measurement -> flip a mirror + change exposure)
+        - Threading and backgrounding
+        - Adding analysis checks during the scan (e.g. auto-detect defects, focus, thresholds, polarisation)
+    """
 
     def __init__(self, gui_generator, **kwargs):
         # self.prep_functions = prep_funcs(instrument_dictionary, gui)
@@ -604,7 +641,7 @@ class GeneralScan:  # (QtCore.QThread):
                 attribute_name += dictionary['property']
             else:
                 raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
-                                 variable_dictionary)
+                                 dictionary)
             attributes[attribute_name] = attribute_value
 
         self._logger.debug('Attributes: ', attributes)
@@ -676,7 +713,7 @@ class GeneralScan:  # (QtCore.QThread):
                             setattr(instr, prop, value)
                     else:
                         raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
-                                         variable_dictionary)
+                                         prep)
                     self.pyqt_app.processEvents()
 
                 for measurement in measure_dictionary['measurements']:
@@ -690,6 +727,8 @@ class GeneralScan:  # (QtCore.QThread):
 
                     instr = self.instr_dict[measurement['instrument']]
                     if measurement['instrument'] == 'streak':
+                        # This is currently not ideal since it assumes the user wants to save the data on the computer
+                        # the streak is directly connected to. Could possibly remove it from the base nplab code
                         try:
                             directory = self.instr_dict['HDF5'].dirname + '/' + dataset_name
                             if not os.path.exists(directory):
@@ -699,7 +738,7 @@ class GeneralScan:  # (QtCore.QThread):
                             instr.start_sequence(directory, True)
                             self.pyqt_app.processEvents()
                         except Exception as e:
-                            self._logger.warn('Streak failed at %s because: %s' % (line, e))
+                            self._logger.warn('Streak failed because: %s' % e)
                     else:
                         attributes = {}
                         if 'metadata' in measurement:
@@ -714,7 +753,7 @@ class GeneralScan:  # (QtCore.QThread):
                             data = getattr(instr, measurement['property'])
                         else:
                             raise ValueError('Either a function or a property needs to be provided in the dictionary: ',
-                                             variable_dictionary)
+                                             measurement)
                         self.pyqt_app.processEvents()
 
                         self._logger.info('Saving: %s %s' % (dataset_name, attributes))
