@@ -7,6 +7,7 @@ from nplab.utils.gui import QtCore, QtGui, QtWidgets, get_qt_app, uic
 from collections import deque
 
 from nplab.ui.ui_tools import UiTools
+import nplab.datafile
 from nplab.datafile import DataFile
 from nplab.utils.notified_property import NotifiedProperty, DumbNotifiedProperty, register_for_property_changes
 import h5py
@@ -289,6 +290,13 @@ class Spectrometer(Instrument):
             spectrum = self.read_spectrum() if spectrum is None else spectrum
         metadata = self.metadata
         metadata.update(attrs) #allow extra metadata to be passed in
+        nplab.datafile._use_current_group=True
+        if self.filename[0]=='_':
+            Name=nplab.datafile._current_group.name
+            while Name[-1] in ['0','1','2','3','4','5','6','7','8','9','_'] and len(Name)>1:
+                Name=Name[:-1]
+            nplab.datafile._current_group=self.create_data_group(Name)
+            self.filename=self.filename[1:]
         self.create_dataset(self.filename, data=spectrum, attrs=metadata) 
         #save data in the default place (see nplab.instrument.Instrument)
     def read_averaged_spectrum(self,new_deque = False,fresh = False):

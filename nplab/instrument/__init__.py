@@ -73,8 +73,10 @@ class Instrument(object, ShowGUIMixin):
     def get_root_data_folder(cls):
         """Return a sensibly-named data folder in the default file."""
         if nplab.datafile._use_current_group == True:
-            if nplab.datafile._current_group != None:
-                return nplab.datafile._current_group
+            if nplab.datafile._current_group == None:
+                f = nplab.current_datafile()
+                nplab.datafile._current_group=f.require_group(cls.__name__)
+            return nplab.datafile._current_group
         f = nplab.current_datafile()
         return f.require_group(cls.__name__)
 
